@@ -7,20 +7,16 @@
   var dropzone = $('dropzone');
   var uploadSection = $('uploadSection');
   var workspaceSection = $('workspaceSection');
-  var originalImg = $('originalImg');
-  var resultImg = $('resultImg');
-  var resultOnlyImg = $('resultOnlyImg');
-  var compareView = $('compareView');
-  var afterLayer = $('afterLayer');
-  var divider = $('divider');
+  var resultPreview = $('resultPreview');
+  var previewWrap = $('previewWrap');
+  var previewPlaceholder = $('previewPlaceholder');
+  var loupe = $('loupe');
   var dimensionsInfo = $('dimensionsInfo');
   var modeFidelity = $('modeFidelity');
   var modeAI = $('modeAI');
   var modeHint = $('modeHint');
-  var scaleSelect = $('scaleSelect');
-  var sharpenField = $('sharpenField');
-  var sharpenRange = $('sharpenRange');
-  var sharpenValue = $('sharpenValue');
+  var tierSelect = $('tierSelect');
+  var tierHint = $('tierHint');
   var formatSelect = $('formatSelect');
   var jpegField = $('jpegField');
   var qualityRange = $('qualityRange');
@@ -28,12 +24,13 @@
   var processBtn = $('processBtn');
   var downloadBtn = $('downloadBtn');
   var statusBar = $('statusBar');
-  var compareBtn = $('compareBtn');
-  var resultBtn = $('resultBtn');
+
+  var TIER_LABELS = { 1920: '1080P', 2560: '2K', 3840: '4K', 7680: '8K' };
 
   var sourceImage = null;
   var sourceFileName = 'image';
   var resultCanvas = null;
+  var origScaled = null;
   var currentMode = 'ai';
   var aiState = { loading: false, loaded: false, upscaler: null };
   var aiUpscalers = {};
@@ -51,7 +48,9 @@
 
   var AI_MODEL_GLOBALS = { 2: 'ESRGANSlim2x', 3: 'ESRGANSlim3x', 4: 'ESRGANSlim4x' };
 
-  /* ---------- status ---------- */
+  /* ---------- 通用工具 ---------- */
+
+  function clamp(v, min, max) { return v < min ? min : v > max ? max : v; }
 
   function setStatus(msg, kind) {
     statusBar.textContent = msg || '';
@@ -62,7 +61,45 @@
     return new Promise(function (resolve) { requestAnimationFrame(function () { requestAnimationFrame(resolve); }); });
   }
 
-  /* ---------- upload ---------- */
+  function imageToCanvas(img) {
+    var canvas = document.createElement('canvas');
+    canvas.width = img.naturalWidth || img.width;
+    canvas.height = img.naturalHeight || img.height;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    return canvas;
+  }
+
+  function toCanvas(result) {
+    return new Promise(function (resolve, reject) {
+      var url = typeof result === 'string' ? result : (result && result.src);
+      if (!url) { reject(new Error('未获取到处理结果')); return; }
+      var out = new Image();
+      out.onload = function () { resolve(imageToCanvas(out)); };
+      out.onerror = function () { reject(new Error('结果解码失败')); };
+      out.src = url;
+    });
+  }
+
+  function loadScript(src) {
+    return new Promise(function (resolve, reject) {
+      var existing = document.querySelector('script[data-src="' + src + '"]');
+      if (existing) {
+        if (existing.dataset.loaded === '1') { resolve(); return; }
+        existing.addEventListener('load', function () { resolve(); }, { once: true });
+        existing.addEventListener('error', function () { reject(new Error('脚本加载失败：' + src)); }, { once: true });
+        return;
+      }
+      var s = document.createElement('script');
+      s.src = src;
+      s.async = false;
+      s.setAttribute('data-src', src);
+      s.onload = function () { s.dataset.loaded = '1'; resolve(); };
+      s.onerror = function () { s.remove(); reject(new Error('脚本加载失败：' + src)); };
+      document.head.appendChild(s);
+    });
+  }
+
+  /* ---------- 上传 ---------- */
 
   dropzone.addEventListener('click', function () { fileInput.click(); });
   dropzone.addEventListener('keydown', function (e) {
@@ -71,7 +108,6 @@
   fileInput.addEventListener('change', function (e) {
     if (e.target.files && e.target.files[0]) handleFile(e.target.files[0]);
   });
-
   ['dragover', 'dragenter'].forEach(function (evt) {
     dropzone.addEventListener(evt, function (e) { e.preventDefault(); dropzone.classList.add('dragging'); });
   });
@@ -93,77 +129,31 @@
     var img = new Image();
     img.onload = function () {
       sourceImage = img;
-      originalImg.src = url;
       resetResult();
       uploadSection.hidden = true;
       workspaceSection.hidden = false;
-      setStatus('已载入：' + img.naturalWidth + ' × ' + img.naturalHeight + ' px', 'ok');
-      renderDimensions(img.naturalWidth, img.naturalHeight, null);
+      setStatus('已载入 ' + img.naturalWidth + ' × ' + img.naturalHeight + ' px，点击「生成高清图」', 'ok');
+      renderDimensions();
+      updateTierHint();
     };
-    img.onerror = function () {
-      setStatus('图片加载失败，请换一张试试', 'error');
-    };
+    img.onerror = function () { setStatus('图片加载失败，请换一张试试', 'error'); };
     img.src = url;
   }
 
   function resetResult() {
     resultCanvas = null;
-    resultImg.removeAttribute('src');
-    resultOnlyImg.removeAttribute('src');
+    origScaled = null;
+    resultPreview.removeAttribute('src');
+    resultPreview.hidden = true;
+    previewPlaceholder.hidden = false;
+    loupe.hidden = true;
     downloadBtn.disabled = true;
-    afterLayer.style.clipPath = 'inset(0 50% 0 0)';
-    divider.style.left = '50%';
   }
 
-  /* ---------- comparison slider ---------- */
-
-  function initCompareSlider() {
-    var dragging = false;
-
-    function setPos(clientX) {
-      var rect = compareView.getBoundingClientRect();
-      if (rect.width === 0) return;
-      var pct = ((clientX - rect.left) / rect.width) * 100;
-      pct = Math.max(0, Math.min(100, pct));
-      afterLayer.style.clipPath = 'inset(0 ' + (100 - pct) + '% 0 0)';
-      divider.style.left = pct + '%';
-    }
-
-    divider.addEventListener('pointerdown', function (e) {
-      dragging = true;
-      divider.setPointerCapture(e.pointerId);
-      e.preventDefault();
-    });
-    compareView.addEventListener('pointermove', function (e) {
-      if (dragging) setPos(e.clientX);
-    });
-    ['pointerup', 'pointercancel', 'pointerleave'].forEach(function (evt) {
-      compareView.addEventListener(evt, function () { dragging = false; });
-    });
-    compareView.addEventListener('pointerdown', function (e) {
-      if (e.target !== divider && !divider.contains(e.target)) setPos(e.clientX);
-    });
-  }
-  initCompareSlider();
-
-  /* ---------- view toggle ---------- */
-
-  compareBtn.addEventListener('click', function () {
-    compareBtn.classList.add('active');
-    resultBtn.classList.remove('active');
-    syncViewVisibility();
-  });
-  resultBtn.addEventListener('click', function () {
-    resultBtn.classList.add('active');
-    compareBtn.classList.remove('active');
-    syncViewVisibility();
-  });
-
-  /* ---------- controls ---------- */
+  /* ---------- 模式切换 ---------- */
 
   modeFidelity.addEventListener('click', function () { setMode('fidelity'); });
   modeAI.addEventListener('click', function () { setMode('ai'); });
-  setMode('ai');
 
   function setMode(mode) {
     currentMode = mode;
@@ -171,20 +161,29 @@
     modeAI.classList.toggle('active', mode === 'ai');
     modeFidelity.setAttribute('aria-checked', mode === 'fidelity');
     modeAI.setAttribute('aria-checked', mode === 'ai');
-    var oneX = scaleSelect.querySelector('option[value="1"]');
     if (mode === 'ai') {
-      oneX.disabled = true;
-      if (scaleSelect.value === '1') scaleSelect.value = '2';
-      modeHint.textContent = 'AI 重建缺失细节，清晰度更高；可能补造原图不存在的细节，首次使用需联网下载模型。';
+      modeHint.textContent = 'AI 重建缺失细节，把小图、模糊图变成真正的高清图；首次使用需下载约 4MB 模型。';
     } else {
-      oneX.disabled = false;
-      modeHint.textContent = 'Lanczos 高质量重采样 + 锐化，不改变原图元素，无需联网。';
+      modeHint.textContent = '仅按比例放大，不补造细节、不改变原图元素，无需联网。';
+    }
+  }
+  setMode('ai');
+
+  tierSelect.addEventListener('change', function () {
+    if (sourceImage) updateTierHint();
+  });
+
+  function updateTierHint() {
+    if (!sourceImage) return;
+    var targetLong = parseInt(tierSelect.value, 10);
+    var t = computeTarget(sourceImage.naturalWidth, sourceImage.naturalHeight, targetLong);
+    if (t.already) {
+      tierHint.textContent = '原图较长边 ' + sourceImage.naturalWidth + 'px，已不低于该清晰度。';
+    } else {
+      tierHint.textContent = '输出约 ' + t.w + ' × ' + t.h + ' px（保持原比例）。';
     }
   }
 
-  sharpenRange.addEventListener('input', function () {
-    sharpenValue.textContent = sharpenRange.value + '%';
-  });
   formatSelect.addEventListener('change', function () {
     jpegField.hidden = formatSelect.value !== 'jpeg';
   });
@@ -192,24 +191,39 @@
     qualityValue.textContent = qualityRange.value + '%';
   });
 
-  /* ---------- processing ---------- */
+  /* ---------- 处理 ---------- */
 
   processBtn.addEventListener('click', runProcess);
 
+  function computeTarget(sw, sh, long) {
+    var s = long / Math.max(sw, sh);
+    if (s <= 1) {
+      return { w: sw, h: sh, scale: 1, already: true };
+    }
+    return { w: Math.round(sw * s), h: Math.round(sh * s), scale: s, already: false };
+  }
+
   function runProcess() {
     if (!sourceImage) { setStatus('请先选择图片', 'error'); return; }
-    var scale = parseInt(scaleSelect.value, 10);
-    var strength = parseInt(sharpenRange.value, 10) / 100;
+    var targetLong = parseInt(tierSelect.value, 10);
+    var label = TIER_LABELS[targetLong] || targetLong;
+    var target = computeTarget(sourceImage.naturalWidth, sourceImage.naturalHeight, targetLong);
 
     processBtn.disabled = true;
     downloadBtn.disabled = true;
 
+    if (target.already) {
+      resultCanvas = imageToCanvas(sourceImage);
+      finishResult('原图已不低于 ' + label + '，无需放大', null);
+      return;
+    }
+
     if (currentMode === 'fidelity') {
-      setStatus('正在处理（高质量放大）…', 'info');
+      setStatus('正在无损放大到 ' + label + '…', 'info');
       nextFrame().then(function () {
         try {
-          resultCanvas = fidelityUpscale(sourceImage, scale, strength);
-          finishResult('处理完成', null);
+          resultCanvas = fidelityToTarget(sourceImage, target);
+          finishResult('已生成 ' + label + ' 高清图', null);
         } catch (err) {
           console.error(err);
           setStatus('处理失败：' + err.message, 'error');
@@ -217,59 +231,58 @@
         }
       });
     } else {
-      runAI(scale, strength);
+      runAI(target, label);
     }
   }
 
   function finishResult(msg, extra) {
+    buildOrigScaled();
     showResult();
     setStatus(msg, 'ok');
     downloadBtn.disabled = false;
     processBtn.disabled = false;
-    renderDimensions(sourceImage.naturalWidth, sourceImage.naturalHeight, extra);
+    renderDimensions(extra);
   }
 
   function showResult() {
     if (!resultCanvas) return;
-    var dataUrl = resultCanvas.toDataURL('image/png');
-    resultImg.src = dataUrl;
-    resultOnlyImg.src = dataUrl;
-    syncViewVisibility();
+    resultPreview.src = resultCanvas.toDataURL('image/png');
+    resultPreview.hidden = false;
+    previewPlaceholder.hidden = true;
   }
 
-  function syncViewVisibility() {
-    var showCompare = compareBtn.classList.contains('active') || !resultCanvas;
-    compareView.hidden = !showCompare;
-    resultOnlyImg.hidden = showCompare;
+  function buildOrigScaled() {
+    if (!sourceImage || !resultCanvas) return;
+    var c = document.createElement('canvas');
+    c.width = resultCanvas.width;
+    c.height = resultCanvas.height;
+    var ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(sourceImage, 0, 0, c.width, c.height);
+    origScaled = c;
   }
 
-  function renderDimensions(sw, sh, extra) {
-    var text = '原图：' + sw + ' × ' + sh + ' px';
-    if (resultCanvas) text += '　→　结果：' + resultCanvas.width + ' × ' + resultCanvas.height + ' px';
-    if (extra && extra.durationMs != null) text += '　·　耗时 ' + (extra.durationMs / 1000).toFixed(1) + ' 秒';
+  function renderDimensions() {
+    if (!sourceImage) { dimensionsInfo.textContent = ''; return; }
+    var text = '原图 ' + sourceImage.naturalWidth + ' × ' + sourceImage.naturalHeight + ' px';
+    if (resultCanvas) text += '  →  高清 ' + resultCanvas.width + ' × ' + resultCanvas.height + ' px';
     dimensionsInfo.textContent = text;
   }
 
-  /* ---------- fidelity (canvas) ---------- */
+  /* ---------- 无损放大（Lanczos） ---------- */
 
-  function fidelityUpscale(img, scale, strength) {
-    var sw = img.naturalWidth;
-    var sh = img.naturalHeight;
-    var w = Math.round(sw * scale);
-    var h = Math.round(sh * scale);
+  function fidelityToTarget(img, target) {
+    var w = target.w;
+    var h = target.h;
     var MAX_DIM = 8192;
     if (w > MAX_DIM || h > MAX_DIM) {
-      throw new Error('输出尺寸过大（' + w + '×' + h + ' px），请降低放大倍数');
+      throw new Error('输出尺寸过大（' + w + '×' + h + ' px），请选择更低清晰度');
     }
-
+    var sw = img.naturalWidth;
+    var sh = img.naturalHeight;
     var canvas;
-    if (scale === 1) {
-      canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
-      canvas.getContext('2d').drawImage(img, 0, 0);
-    } else if (w * h > 12000000) {
-      // 超大图走快速路径，避免长时间阻塞
+    if (w * h > 12000000) {
       canvas = document.createElement('canvas');
       canvas.width = w;
       canvas.height = h;
@@ -290,11 +303,7 @@
       canvas.height = h;
       canvas.getContext('2d', { willReadFrequently: true }).putImageData(out, 0, 0);
     }
-
-    if (strength > 0) {
-      var ctx = canvas.getContext('2d', { willReadFrequently: true });
-      unsharpMask(ctx, w, h, strength, scale);
-    }
+    unsharpMask(canvas.getContext('2d', { willReadFrequently: true }), w, h, 0.3, 1);
     return canvas;
   }
 
@@ -311,7 +320,6 @@
     var rx = sw / dw;
     var ry = sh / dh;
     var a = 3;
-
     function clampIdx(i, max) { return i < 0 ? 0 : i >= max ? max - 1 : i; }
 
     for (var y = 0; y < sh; y++) {
@@ -373,22 +381,6 @@
     ctx.putImageData(imageData, 0, 0);
   }
 
-  function sharpenCanvas(canvas, amount) {
-    var ctx = canvas.getContext('2d', { willReadFrequently: true });
-    var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    var src = imageData.data;
-    var blurred = gaussianBlurRGB(src, canvas.width, canvas.height, 0.8);
-    var gain = amount;
-    for (var i = 0; i < src.length; i += 4) {
-      for (var c = 0; c < 3; c++) {
-        var idx = i + c;
-        var v = src[idx] + gain * (src[idx] - blurred[idx]);
-        src[idx] = v < 0 ? 0 : v > 255 ? 255 : v;
-      }
-    }
-    ctx.putImageData(imageData, 0, 0);
-  }
-
   function gaussianBlurRGB(src, w, h, sigma) {
     var radius = Math.max(1, Math.ceil(sigma * 2));
     var kernel = [];
@@ -399,7 +391,6 @@
       ksum += v;
     }
     for (var i = 0; i < kernel.length; i++) kernel[i] /= ksum;
-
     function clampIdx(i, max) { return i < 0 ? 0 : i >= max ? max - 1 : i; }
 
     var tmp = new Uint8ClampedArray(src.length);
@@ -435,37 +426,91 @@
     return out;
   }
 
-  /* ---------- AI (ESRGAN) ---------- */
+  /* ---------- AI 高清（ESRGAN 整数倍放大链） ---------- */
 
-  function runAI(scale, strength) {
-    setStatus('正在加载 AI 模型（首次使用需下载，请稍候）…', 'info');
+  function runAI(target, label) {
+    setStatus('正在加载 AI 模型（首次使用需下载约 4MB）…', 'info');
     nextFrame().then(function () {
       return ensureAIUpscaler();
     }).then(function () {
-      setStatus('正在 AI 超分，大图可能耗时较长…', 'info');
+      setStatus('AI 正在重建细节并放大到 ' + label + '…', 'info');
       return nextFrame().then(function () {
-        return aiUpscale(sourceImage, scale);
+        return aiToTarget(sourceImage, target);
       });
     }).then(function (canvas) {
-      if (strength > 0) {
-        sharpenCanvas(canvas, strength);
-      }
       resultCanvas = canvas;
-      finishResult('AI 处理完成', {});
+      finishResult('已生成 ' + label + ' 高清图', {});
     }).catch(function (err) {
       console.error(err);
       var msg = err && err.message ? err.message : '未知错误';
-      setStatus('AI 模型加载失败，已改用保真放大（原因：' + msg + '）', 'info');
+      setStatus('AI 模型加载失败，已改用无损放大（原因：' + msg + '）', 'info');
       setMode('fidelity');
-      scaleSelect.value = String(Math.max(1, Math.min(4, scale)));
-      var strength = parseInt(sharpenRange.value, 10) / 100;
       try {
-        resultCanvas = fidelityUpscale(sourceImage, parseInt(scaleSelect.value, 10), strength);
-        finishResult('已改用保真放大完成', null);
+        resultCanvas = fidelityToTarget(sourceImage, target);
+        finishResult('已改用无损放大完成', null);
       } catch (e2) {
         setStatus('处理失败：' + e2.message, 'error');
         processBtn.disabled = false;
       }
+    });
+  }
+
+  function aiFactors(required) {
+    var factors = [];
+    var acc = 1;
+    var opts = [4, 3, 2];
+    while (acc < required) {
+      var remaining = required / acc;
+      var f = null;
+      for (var i = 0; i < opts.length; i++) {
+        if (opts[i] >= remaining) f = opts[i];
+      }
+      if (!f) f = 4;
+      factors.push(f);
+      acc *= f;
+      if (acc >= 64) break;
+    }
+    return factors;
+  }
+
+  function aiToTarget(img, target) {
+    var factors = aiFactors(target.scale);
+    var cur = Promise.resolve(imageToCanvas(img));
+    for (var i = 0; i < factors.length; i++) {
+      cur = cur.then((function (factor) {
+        return function (canvas) { return aiUpscaleOnce(canvas, factor); };
+      })(factors[i]));
+    }
+    return cur.then(function (hiCanvas) {
+      if (hiCanvas.width === target.w && hiCanvas.height === target.h) return hiCanvas;
+      var out = document.createElement('canvas');
+      out.width = target.w;
+      out.height = target.h;
+      var ctx = out.getContext('2d');
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(hiCanvas, 0, 0, target.w, target.h);
+      return out;
+    });
+  }
+
+  function aiUpscaleOnce(canvas, factor) {
+    var modelGlobal = AI_MODEL_GLOBALS[factor];
+    var modelUrl = AI_LIBS.models[factor];
+    return loadScript(modelUrl).then(function () {
+      var model = window[modelGlobal];
+      if (!model) throw new Error('模型脚本加载失败');
+      model.path = 'models/x' + factor + '/model.json';
+      if (!aiUpscalers[factor]) {
+        aiUpscalers[factor] = new aiState.upscaler({ model: model });
+      }
+      var upscaler = aiUpscalers[factor];
+      var maxDim = Math.max(canvas.width, canvas.height);
+      var patchByScale = { 2: 128, 3: 129, 4: 128 };
+      var options = maxDim > 800 ? { patchSize: patchByScale[factor] || 128, padding: 8 } : {};
+      return upscaler.upscale(canvas, options);
+    }).then(function (result) {
+      return toCanvas(result);
     });
   }
 
@@ -499,65 +544,56 @@
       });
   }
 
-  function aiUpscale(img, scale) {
-    var modelGlobal = AI_MODEL_GLOBALS[scale];
-    var modelUrl = AI_LIBS.models[scale];
-    return loadScript(modelUrl).then(function () {
-      var model = window[modelGlobal];
-      if (!model) throw new Error('模型脚本加载失败');
-      model.path = 'models/x' + scale + '/model.json';
-      if (!aiUpscalers[scale]) {
-        aiUpscalers[scale] = new aiState.upscaler({ model: model });
-      }
-      var upscaler = aiUpscalers[scale];
-      var maxDim = Math.max(img.naturalWidth, img.naturalHeight);
-      var patchByScale = { 2: 128, 3: 129, 4: 128 };
-      var options = maxDim > 800 ? { patchSize: patchByScale[scale] || 128, padding: 8 } : {};
-      return upscaler.upscale(img, options);
-    }).then(function (result) {
-      return toCanvas(result);
-    });
+  /* ---------- 放大镜对比预览 ---------- */
+
+  var LOUPE_SIZE = 260;
+  var ZOOM = 3;
+
+  function onPreviewMove(e) {
+    if (!resultCanvas || !origScaled) return;
+    var rect = resultPreview.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    var imgX = (e.clientX - rect.left) / rect.width * resultCanvas.width;
+    var imgY = (e.clientY - rect.top) / rect.height * resultCanvas.height;
+    drawLoupe(imgX, imgY);
+    var wrapRect = previewWrap.getBoundingClientRect();
+    var lx = e.clientX - wrapRect.left - LOUPE_SIZE / 2;
+    var ly = e.clientY - wrapRect.top - LOUPE_SIZE / 2;
+    lx = clamp(lx, 0, Math.max(0, wrapRect.width - LOUPE_SIZE));
+    ly = clamp(ly, 0, Math.max(0, wrapRect.height - LOUPE_SIZE));
+    loupe.style.left = lx + 'px';
+    loupe.style.top = ly + 'px';
+    loupe.hidden = false;
   }
 
-  function toCanvas(result) {
-    return new Promise(function (resolve, reject) {
-      var url = typeof result === 'string' ? result : (result && result.src);
-      if (!url) { reject(new Error('未获取到处理结果')); return; }
-      var out = new Image();
-      out.onload = function () { resolve(imageToCanvas(out)); };
-      out.onerror = function () { reject(new Error('结果解码失败')); };
-      out.src = url;
-    });
+  function drawLoupe(imgX, imgY) {
+    var cw = resultCanvas.width;
+    var ch = resultCanvas.height;
+    var crop = LOUPE_SIZE / ZOOM;
+    if (cw < crop || ch < crop) { loupe.hidden = true; return; }
+    var cx = clamp(imgX - crop / 2, 0, cw - crop);
+    var cy = clamp(imgY - crop / 2, 0, ch - crop);
+    var ctx = loupe.getContext('2d');
+    var half = LOUPE_SIZE / 2;
+    ctx.clearRect(0, 0, LOUPE_SIZE, LOUPE_SIZE);
+    ctx.drawImage(origScaled, cx, cy, crop, crop, 0, 0, half, LOUPE_SIZE);
+    ctx.drawImage(resultCanvas, cx, cy, crop, crop, half, 0, half, LOUPE_SIZE);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(half - 1, 0, 2, LOUPE_SIZE);
+    ctx.fillStyle = 'rgba(17, 24, 39, 0.6)';
+    ctx.fillRect(0, 0, half, 20);
+    ctx.fillRect(half, 0, half, 20);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('原图', half / 2, 14);
+    ctx.fillText('高清', half + half / 2, 14);
   }
 
-  function imageToCanvas(img) {
-    var canvas = document.createElement('canvas');
-    canvas.width = img.naturalWidth || img.width;
-    canvas.height = img.naturalHeight || img.height;
-    canvas.getContext('2d').drawImage(img, 0, 0);
-    return canvas;
-  }
+  previewWrap.addEventListener('pointermove', onPreviewMove);
+  previewWrap.addEventListener('pointerleave', function () { loupe.hidden = true; });
 
-  function loadScript(src) {
-    return new Promise(function (resolve, reject) {
-      var existing = document.querySelector('script[data-src="' + src + '"]');
-      if (existing) {
-        if (existing.dataset.loaded === '1') { resolve(); return; }
-        existing.addEventListener('load', function () { resolve(); }, { once: true });
-        existing.addEventListener('error', function () { reject(new Error('脚本加载失败：' + src)); }, { once: true });
-        return;
-      }
-      var s = document.createElement('script');
-      s.src = src;
-      s.async = false;
-      s.setAttribute('data-src', src);
-      s.onload = function () { s.dataset.loaded = '1'; resolve(); };
-      s.onerror = function () { s.remove(); reject(new Error('脚本加载失败：' + src)); };
-      document.head.appendChild(s);
-    });
-  }
-
-  /* ---------- download ---------- */
+  /* ---------- 下载 ---------- */
 
   downloadBtn.addEventListener('click', function () {
     if (!resultCanvas) return;
@@ -568,7 +604,7 @@
     var ext = format === 'jpeg' ? 'jpg' : 'png';
     var a = document.createElement('a');
     a.href = dataUrl;
-    a.download = sourceFileName + '-enhanced.' + ext;
+    a.download = sourceFileName + '-' + resultCanvas.width + 'x' + resultCanvas.height + '.' + ext;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
