@@ -74,13 +74,13 @@
           <div class="field">
             <span class="field-label">处理模式</span>
             <div class="segmented" role="radiogroup" aria-label="处理模式">
-              <button id="modeFidelity" class="seg active" type="button" role="radio" aria-checked="true">
-                <span class="seg-title">保真锐化</span>
-                <span class="seg-desc">只放大与锐化，不补造细节</span>
+              <button id="modeFidelity" class="seg" type="button" role="radio" aria-checked="false">
+                <span class="seg-title">保真放大</span>
+                <span class="seg-desc">Lanczos 放大 + 锐化，不补造细节</span>
               </button>
-              <button id="modeAI" class="seg" type="button" role="radio" aria-checked="false">
+              <button id="modeAI" class="seg active" type="button" role="radio" aria-checked="true">
                 <span class="seg-title">AI 超分</span>
-                <span class="seg-desc">细节更强，可能补造细节</span>
+                <span class="seg-desc">AI 重建细节，清晰度更高</span>
               </button>
             </div>
             <p id="modeHint" class="field-hint">推荐：保真锐化，严格不改变原图元素。</p>
@@ -97,8 +97,8 @@
           </div>
 
           <div class="field" id="sharpenField">
-            <label for="sharpenRange" class="field-label">锐化强度 <span id="sharpenValue" class="range-value">60%</span></label>
-            <input type="range" id="sharpenRange" min="0" max="100" value="60">
+            <label for="sharpenRange" class="field-label">锐化强度 <span id="sharpenValue" class="range-value">45%</span></label>
+            <input type="range" id="sharpenRange" min="0" max="100" value="45">
           </div>
 
           <div class="field">
