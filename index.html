@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>图片清晰度增强 · 本地处理</title>
-  <meta name="description" content="在浏览器本地提高图片清晰度，图片不会上传到任何服务器，默认模式不改变原图元素。">
+  <title>图片高清化 · AI 超分辨率</title>
+  <meta name="description" content="把模糊、低分辨率图片一键变高清（1080P/2K/4K/8K），AI 重建细节，纯本地处理，原图不上传。">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -16,9 +16,9 @@
         <circle cx="12" cy="12" r="1.2" fill="currentColor"/>
         <path d="M12 2.2v1.6M12 20.2v1.6M2.2 12h1.6M20.2 12h1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
       </svg>
-      <h1>图片清晰度增强</h1>
+      <h1>图片高清化</h1>
     </div>
-    <p class="tagline">纯本地处理 · 原图不上传 · 默认不改变原图元素</p>
+    <p class="tagline">AI 超分辨率 · 模糊图一键变高清 · 纯本地处理，原图不上传</p>
   </header>
 
   <main class="container">
@@ -45,60 +45,44 @@
       <div class="workspace-grid">
         <div class="card preview-card">
           <div class="card-header">
-            <h2>效果预览</h2>
-            <div class="view-toggle" role="group" aria-label="视图切换">
-              <button id="compareBtn" class="active" type="button">对比</button>
-              <button id="resultBtn" type="button">只看结果</button>
-            </div>
+            <h2>高清预览</h2>
+            <span class="preview-hint">移动鼠标查看放大对比</span>
           </div>
           <div id="previewWrap" class="preview-wrap">
-            <div id="compareView" class="compare-view">
-              <img id="originalImg" alt="原图">
-              <div id="afterLayer" class="after-layer">
-                <img id="resultImg" alt="处理结果">
-              </div>
-              <div id="divider" class="divider" aria-hidden="true">
-                <div class="divider-handle"></div>
-              </div>
-              <span class="badge badge-before">原图</span>
-              <span class="badge badge-after">结果</span>
-            </div>
-            <img id="resultOnlyImg" class="result-only" alt="处理结果" hidden>
+            <img id="resultPreview" class="result-preview" alt="高清结果" hidden>
+            <canvas id="loupe" class="loupe" width="260" height="260" hidden></canvas>
+            <p id="previewPlaceholder" class="placeholder">选择图片并处理后，在此预览高清结果</p>
           </div>
           <p id="dimensionsInfo" class="dimensions-info"></p>
         </div>
 
         <aside class="card controls-card">
-          <h2>处理设置</h2>
+          <h2>高清设置</h2>
 
           <div class="field">
             <span class="field-label">处理模式</span>
             <div class="segmented" role="radiogroup" aria-label="处理模式">
-              <button id="modeFidelity" class="seg" type="button" role="radio" aria-checked="false">
-                <span class="seg-title">保真放大</span>
-                <span class="seg-desc">Lanczos 放大 + 锐化，不补造细节</span>
-              </button>
               <button id="modeAI" class="seg active" type="button" role="radio" aria-checked="true">
-                <span class="seg-title">AI 超分</span>
-                <span class="seg-desc">AI 重建细节，清晰度更高</span>
+                <span class="seg-title">AI 高清</span>
+                <span class="seg-desc">重建细节，清晰度最高</span>
+              </button>
+              <button id="modeFidelity" class="seg" type="button" role="radio" aria-checked="false">
+                <span class="seg-title">无损放大</span>
+                <span class="seg-desc">不补造细节，不改变元素</span>
               </button>
             </div>
-            <p id="modeHint" class="field-hint">推荐：保真锐化，严格不改变原图元素。</p>
+            <p id="modeHint" class="field-hint">AI 重建缺失细节，把小图、模糊图变成真正的高清图；首次使用需下载约 4MB 模型。</p>
           </div>
 
           <div class="field">
-            <label for="scaleSelect" class="field-label">放大倍数</label>
-            <select id="scaleSelect">
-              <option value="1">1×（仅增强清晰度，不放大）</option>
-              <option value="2" selected>2×</option>
-              <option value="3">3×</option>
-              <option value="4">4×</option>
+            <label for="tierSelect" class="field-label">目标清晰度</label>
+            <select id="tierSelect">
+              <option value="1920">1080P（宽边 1920px）</option>
+              <option value="2560">2K（宽边 2560px）</option>
+              <option value="3840" selected>4K（宽边 3840px）</option>
+              <option value="7680">8K（宽边 7680px）</option>
             </select>
-          </div>
-
-          <div class="field" id="sharpenField">
-            <label for="sharpenRange" class="field-label">锐化强度 <span id="sharpenValue" class="range-value">45%</span></label>
-            <input type="range" id="sharpenRange" min="0" max="100" value="45">
+            <p id="tierHint" class="field-hint">按图片较长边计算，保持原比例。</p>
           </div>
 
           <div class="field">
@@ -114,8 +98,8 @@
             <input type="range" id="qualityRange" min="50" max="100" value="90">
           </div>
 
-          <button id="processBtn" class="btn-primary" type="button">开始处理</button>
-          <button id="downloadBtn" class="btn-secondary" type="button" disabled>下载结果</button>
+          <button id="processBtn" class="btn-primary" type="button">生成高清图</button>
+          <button id="downloadBtn" class="btn-secondary" type="button" disabled>下载高清图</button>
           <div id="statusBar" class="status-bar" role="status" aria-live="polite"></div>
         </aside>
       </div>
@@ -123,7 +107,7 @@
   </main>
 
   <footer class="site-footer">
-    <p>使用 UpscalerJS（MIT）与 TensorFlow.js 在浏览器本地运行；AI 模式首次使用需联网下载模型权重。</p>
+    <p>使用 TensorFlow.js 与 UpscalerJS（ESRGAN）在本机浏览器运行；AI 模型随站托管，无需第三方 CDN。</p>
   </footer>
 
   <script src="app.js"></script>
