@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>图片清晰度增强 · 本地处理</title>
+  <meta name="description" content="在浏览器本地提高图片清晰度，图片不会上传到任何服务器，默认模式不改变原图元素。">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24" width="26" height="26" aria-hidden="true">
+        <rect x="3" y="3" width="18" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <circle cx="12" cy="12" r="4.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        <circle cx="12" cy="12" r="1.2" fill="currentColor"/>
+        <path d="M12 2.2v1.6M12 20.2v1.6M2.2 12h1.6M20.2 12h1.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      <h1>图片清晰度增强</h1>
+    </div>
+    <p class="tagline">纯本地处理 · 原图不上传 · 默认不改变原图元素</p>
+  </header>
+
+  <main class="container">
+    <section id="uploadSection" class="card upload-card">
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="选择或拖入图片">
+        <input type="file" id="fileInput" accept="image/*" hidden>
+        <svg class="dz-icon" viewBox="0 0 24 24" width="44" height="44" aria-hidden="true">
+          <path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+        </svg>
+        <p class="dz-title">拖入图片，或点击选择</p>
+        <p class="dz-sub">支持 JPG / PNG / WebP / BMP 等常见格式</p>
+      </div>
+      <p class="privacy-note">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+          <rect x="5" y="10" width="14" height="10" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+        </svg>
+        图片仅在本机浏览器内处理，不会上传到任何服务器
+      </p>
+    </section>
+
+    <section id="workspaceSection" class="workspace" hidden>
+      <div class="workspace-grid">
+        <div class="card preview-card">
+          <div class="card-header">
+            <h2>效果预览</h2>
+            <div class="view-toggle" role="group" aria-label="视图切换">
+              <button id="compareBtn" class="active" type="button">对比</button>
+              <button id="resultBtn" type="button">只看结果</button>
+            </div>
+          </div>
+          <div id="previewWrap" class="preview-wrap">
+            <div id="compareView" class="compare-view">
+              <img id="originalImg" alt="原图">
+              <div id="afterLayer" class="after-layer">
+                <img id="resultImg" alt="处理结果">
+              </div>
+              <div id="divider" class="divider" aria-hidden="true">
+                <div class="divider-handle"></div>
+              </div>
+              <span class="badge badge-before">原图</span>
+              <span class="badge badge-after">结果</span>
+            </div>
+            <img id="resultOnlyImg" class="result-only" alt="处理结果" hidden>
+          </div>
+          <p id="dimensionsInfo" class="dimensions-info"></p>
+        </div>
+
+        <aside class="card controls-card">
+          <h2>处理设置</h2>
+
+          <div class="field">
+            <span class="field-label">处理模式</span>
+            <div class="segmented" role="radiogroup" aria-label="处理模式">
+              <button id="modeFidelity" class="seg active" type="button" role="radio" aria-checked="true">
+                <span class="seg-title">保真锐化</span>
+                <span class="seg-desc">只放大与锐化，不补造细节</span>
+              </button>
+              <button id="modeAI" class="seg" type="button" role="radio" aria-checked="false">
+                <span class="seg-title">AI 超分</span>
+                <span class="seg-desc">细节更强，可能补造细节</span>
+              </button>
+            </div>
+            <p id="modeHint" class="field-hint">推荐：保真锐化，严格不改变原图元素。</p>
+          </div>
+
+          <div class="field">
+            <label for="scaleSelect" class="field-label">放大倍数</label>
+            <select id="scaleSelect">
+              <option value="1">1×（仅增强清晰度，不放大）</option>
+              <option value="2" selected>2×</option>
+              <option value="3">3×</option>
+              <option value="4">4×</option>
+            </select>
+          </div>
+
+          <div class="field" id="sharpenField">
+            <label for="sharpenRange" class="field-label">锐化强度 <span id="sharpenValue" class="range-value">60%</span></label>
+            <input type="range" id="sharpenRange" min="0" max="100" value="60">
+          </div>
+
+          <div class="field">
+            <label for="formatSelect" class="field-label">输出格式</label>
+            <select id="formatSelect">
+              <option value="png">PNG（无损，推荐）</option>
+              <option value="jpeg">JPEG（体积更小）</option>
+            </select>
+          </div>
+
+          <div class="field" id="jpegField" hidden>
+            <label for="qualityRange" class="field-label">JPEG 质量 <span id="qualityValue" class="range-value">90%</span></label>
+            <input type="range" id="qualityRange" min="50" max="100" value="90">
+          </div>
+
+          <button id="processBtn" class="btn-primary" type="button">开始处理</button>
+          <button id="downloadBtn" class="btn-secondary" type="button" disabled>下载结果</button>
+          <div id="statusBar" class="status-bar" role="status" aria-live="polite"></div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>使用 UpscalerJS（MIT）与 TensorFlow.js 在浏览器本地运行；AI 模式首次使用需联网下载模型权重。</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
