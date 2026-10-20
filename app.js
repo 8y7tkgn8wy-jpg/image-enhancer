@@ -39,13 +39,13 @@
   var aiUpscalers = {};
 
   var AI_LIBS = {
-    tfjs: 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js',
-    defaultModel: 'https://cdn.jsdelivr.net/npm/@upscalerjs/default-model@1.0.0/dist/umd/index.min.js',
-    core: 'https://cdn.jsdelivr.net/npm/upscaler@1.0.0/dist/browser/umd/upscaler.min.js',
+    tfjs: 'lib/tf.min.js',
+    defaultModel: 'lib/default-model.min.js',
+    core: 'lib/upscaler.min.js',
     models: {
-      2: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0/dist/umd/models/esrgan-slim/src/x2/index.min.js',
-      3: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0/dist/umd/models/esrgan-slim/src/x3/index.min.js',
-      4: 'https://cdn.jsdelivr.net/npm/@upscalerjs/esrgan-slim@1.0.0/dist/umd/models/esrgan-slim/src/x4/index.min.js'
+      2: 'lib/esrgan-slim-x2.min.js',
+      3: 'lib/esrgan-slim-x3.min.js',
+      4: 'lib/esrgan-slim-x4.min.js'
     }
   };
 
@@ -455,13 +455,13 @@
     }).catch(function (err) {
       console.error(err);
       var msg = err && err.message ? err.message : '未知错误';
-      setStatus('AI 处理失败，已自动改用保真锐化（原因：' + msg + '）', 'info');
+      setStatus('AI 模型加载失败，已改用保真放大（原因：' + msg + '）', 'info');
       setMode('fidelity');
       scaleSelect.value = String(Math.max(1, Math.min(4, scale)));
       var strength = parseInt(sharpenRange.value, 10) / 100;
       try {
         resultCanvas = fidelityUpscale(sourceImage, parseInt(scaleSelect.value, 10), strength);
-        finishResult('已改用保真锐化完成', null);
+        finishResult('已改用保真放大完成', null);
       } catch (e2) {
         setStatus('处理失败：' + e2.message, 'error');
         processBtn.disabled = false;
@@ -505,6 +505,7 @@
     return loadScript(modelUrl).then(function () {
       var model = window[modelGlobal];
       if (!model) throw new Error('模型脚本加载失败');
+      model.path = 'models/x' + scale + '/model.json';
       if (!aiUpscalers[scale]) {
         aiUpscalers[scale] = new aiState.upscaler({ model: model });
       }
